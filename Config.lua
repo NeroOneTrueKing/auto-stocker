@@ -15,6 +15,8 @@ return {
   reserveCpus = 3,
 -- if TRUE, immediately recheck inventory on adding or updating a stocking rule
   quickUpdate = true,
+-- uses this address as the proxy for the AE2 me interface. needed if there are several me interface components connected.
+  ae2address = "3520f03d-b346-438f-b95a-05d83f9305ec",
 
 -- colors of each status
   statusColor = {

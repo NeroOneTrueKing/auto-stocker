@@ -43,7 +43,11 @@ end
 
 ---------------------------------------------------------------------------------
 function prelim()
-  ae2 = component["me_interface"]
+  if (config.ae2address ~= nil) then
+    ae2 = component.proxy(config.ae2address)
+  else
+    ae2 = component["me_interface"]
+  end
   if (ae2 == nil) then
     GUI.alert("Not connected to an ME interface! Aborting.")
     os.exit()
@@ -72,19 +76,21 @@ leftPanel.passScreenEvents = true
 leftPanel.eventHandler = function(workspace, object, e1, e2, e3, e4)
 	if e1 == "touch" then
     local lineNumber = lefttextbox.currentLine+e4-leftPanel.y
-    local stockedItem = stockList[lefttextbox.lines[lineNumber].id]
-    -- bug: stocklist is sometimes in flux due to autocheck process, check that it exists before indexing
-    if (stockedItem ~= nil) then
-      local label = stockedItem.label
-      local contextMenu = GUI.addContextMenu(workspace, e3, e4)
-      contextMenu:addItem("Edit rule for "..label).onTouch = function()
-        editAutoStock(stockedItem)
+    if #lefttextbox.lines >= lineNumber then
+      local stockedItem = stockList[lefttextbox.lines[lineNumber].id]
+      -- bug: stocklist is sometimes in flux due to autocheck process, check that it exists before indexing
+      if (stockedItem ~= nil) then
+        local label = stockedItem.label
+        local contextMenu = GUI.addContextMenu(workspace, e3, e4)
+        contextMenu:addItem("Edit rule for "..label).onTouch = function()
+          editAutoStock(stockedItem)
+        end
+        contextMenu:addSeparator()
+        contextMenu:addItem("Delete rule for "..label).onTouch = function()
+          removeStockFileEntry(stockedItem)
+        end
+        workspace:draw()
       end
-      contextMenu:addSeparator()
-      contextMenu:addItem("Delete rule for "..label).onTouch = function()
-        removeStockFileEntry(stockedItem)
-      end
-      workspace:draw()
     end
 	end
 end
