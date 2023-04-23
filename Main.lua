@@ -264,11 +264,11 @@ function editAutoStock(stockFileEntry)
 		local item = getItemFromDrawer()
 		if (item == nil) then
 			GUI.alert("No item located in drawer.")
-		elseif (ae2.getCraftables({name=item.name, damage=item.damage}).n == 0) then
+		elseif (ae2.getCraftables({name=item.name, damage=item.damage, label=item.label}).n == 0) then
 			GUI.alert("Cannot autostock those; create an AE2 pattern first.")
 		else
 			for k,v in pairs(stockList) do
-				if v.name == item.name and v.damage == item.damage then
+				if v.name == item.name and v.damage == item.damage and v.label == item.label then
 					GUI_editAutoStock(stockFileEntry, true)
 					foundit = true
 				end
@@ -278,6 +278,7 @@ function editAutoStock(stockFileEntry)
 				newEntry.dispName = item.dispName
 				newEntry.name = item.name
 				newEntry.damage = item.damage
+				newEntry.label = item.label
 				GUI_editAutoStock(newEntry, false)
 			end
 		end
