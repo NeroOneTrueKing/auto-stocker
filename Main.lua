@@ -338,7 +338,7 @@ function GUI_editAutoStock(stockFileEntry, alreadystocking)
 	local nameinput = sublayout:setPosition(1,1,
 		sublayout:addChild(
 		GUI.input(0, 0, sublayout.width-4, 3, config.programColor.textbox, config.programColor.textboxTextFaint, 0x0, config.programColor.textboxFocused, config.programColor.textboxText,
-		stockFileEntry.dispName, "Enter display name", true)))
+		stockFileEntry.dispName or stockFileEntry.label, "Enter display name", true)))
 	nameinput.validator = function()
 		return (nameinput.text ~= "")
 	end
