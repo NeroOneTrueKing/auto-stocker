@@ -7,8 +7,6 @@ local component = require("component")
 local fs = require("Filesystem")
 ---------------------------------------------------------------------------------
 -- misc globals
-local ae2				-- ae2 network we are attached to
-local db				-- database we are using
 local lvmList			-- list of all level maintainers we have
 local nLvms = 0			-- how many level maintainers we have
 local stockedItems = {}	-- table of all items currently being stocked
@@ -32,7 +30,7 @@ local defaultOptions = {
 -- time between additional AE2 pulls of 'watched' items, in cycles. min 1, whole numbers only
 	watchFrequency = 12,
 -- uses this address as the proxy for the AE2 me interface. needed if there are several me interface components connected.
-	ae2address = "3520f03d-b346-438f-b95a-05d83f9305ec",
+	ae2address = nil,
 -- main program colors
 	programColor = {
 		["header"]=0x2D2D2D,
@@ -143,28 +141,8 @@ end
 
 ---------------------------------------------------------------------------------
 function prelim()
-	-- need an ME Interface
-	if (config.ae2address ~= nil) then
-		ae2 = component.proxy(config.ae2address);
-	else
-		ae2 = component["me_interface"];
-	end
-	if (ae2 == nil) then
-		GUI.alert("Not connected to an ME interface! Aborting.");
-		window:remove();
-	end
-	-- need a database
-	db = component["database"];
-	if (db == nil) then
-		GUI.alert("No database! Aborting.");
-		window:remove();
-	end
-	-- need one or more level maintainers
-	lvmList = component.list("level_maintainer");
-	if next(lvmList) == nil then
-		GUI.alert("Needs at least one level maintainer! Aborting.");
-		window:remove();
-	end
+	-- need an ME Interface; warns user on startup if there is none
+	getAe2();
 
 	loadAllLvms();
 
@@ -175,6 +153,28 @@ function prelim()
 	end
 end
 
+function getComponent(componentName)
+	if next(component.list(componentName)) then
+		return component[componentName];
+	else
+		return nil;
+	end
+end
+
+function getAe2()
+	local ae2;
+	if (config.ae2address ~= nil and component.list()[config.ae2address] ~= nil) then
+		ae2 = component.proxy(config.ae2address);
+	else
+		ae2 = getComponent("me_interface");
+	end
+
+	if ae2 == nil then
+		GUI.alert("No ME Interface available!");
+	end
+
+	return ae2;
+end
 
 ---------------------------------------------------------------------------------
 -- data structure functions
@@ -278,12 +278,15 @@ function sortStocked()
 	for k, v in pairs(stockedItems) do
 		table.insert(iStocked, v);
 	end
-	-- sort by name, id, and label. good enough.
-	table.sort(iStocked, function(a, b) return
-		(a.name > b.name) or
-		(a.name==b.name and a.damage > b.damage) or
-		(a.name==b.name and a.damage== b.damage and a.label > b.label)
-		end);
+	
+	if #iStocked > 0 then
+		-- sort by name, id, and label. good enough.
+		table.sort(iStocked, function(a, b) return
+			(a.name > b.name) or
+			(a.name==b.name and a.damage > b.damage) or
+			(a.name==b.name and a.damage== b.damage and a.label > b.label)
+			end);
+	end
 end
 	
 
@@ -331,10 +334,14 @@ function setLvm(item, quantity, batch)
 		stockedItems[id].batch = batch;
 	else
 		local address, slot = getOpenSlot();
+		local db = getComponent("database");
+		local ae2 = getAe2();
 		
 		if address == nil then
 			GUI.alert("No open slots!");
-		else
+		elseif db == nil then
+			GUI.alert("No database available!");
+		elseif ae2 ~= nil then
 			-- reuse database slot 1
 			db.clear(1);
 			if ae2.store( itemFilter(item), db.address, 1 ) then
@@ -386,19 +393,24 @@ function itemContextMenu(stockedItem, x, y)
 		local contextMenu = GUI.addContextMenu(workspace, x, y)
 		contextMenu:addItem("Craft "..dispName(stockedItem)).onTouch = function()
 			craft(stockedItem, stockedItem.batch);
+			updateScreens();
 		end
 		contextMenu:addItem("Edit rule for "..dispName(stockedItem)).onTouch = function()
 			GUI_editAutoStock(stockedItem, true);
+			updateScreens();
 		end
 		contextMenu:addItem("Show details for "..dispName(stockedItem)).onTouch = function()
 			debugDetails(stockedItem, x, y);
+			updateScreens();
 		end
 		contextMenu:addItem("Refresh data for  "..dispName(stockedItem)).onTouch = function()
 			updateItem(stockedItem);
+			updateScreens();
 		end
 		contextMenu:addSeparator()
 		contextMenu:addItem("Delete rule for "..dispName(stockedItem)).onTouch = function()
 			stopStockingItem(stockedItem);
+			updateScreens();
 		end
 		workspace:draw()
 	end
@@ -430,7 +442,7 @@ local searchBar = primaryContainer:addChild(
 	GUI.input(1,1,primaryContainer.width,1,config.programColor.header,config.programColor.headerText,config.programColor.textboxTextFaint,config.programColor.header,config.programColor.headerText, "", "Search", true)
 )
 searchBar.onInputFinished = function()
-	doInventory();
+	updateScreens();
 	stockingTextbox:scrollToStart();
 	watchTextbox:scrollToStart();
 end
@@ -487,14 +499,15 @@ function doInventory()
 			checkWatched(k, v);
 		end
 
-		-- print misc info
-		printMisc();
-		
-		-- print current info
-		printStocking();
+		updateScreens();
 	else
 		stockingTextbox.lines = {};
 	end
+end
+
+function updateScreens()
+	printMisc();
+	printStocking();
 end
 
 function checkWatched(itemID, watchObj)
@@ -503,7 +516,7 @@ function checkWatched(itemID, watchObj)
 	watchList[itemID].crafting = not component.proxy(stockedItem.address).isDone(stockedItem.slot);
 	watchList[itemID].cycles = watchObj.cycles + 1;
 
-	if watchObj.cycles % config.watchFrequency == 0 then
+	if (config.watchFrequency > 0) and (watchObj.cycles % config.watchFrequency == 0) then
 		updateItem(stockedItem)
 	end
 
@@ -554,20 +567,23 @@ end
 
 function updateItem(item)
 	local id = itemID(item);
-	local ae2Query = ae2.getItemsInNetwork(itemFilter(item));
-	if next(ae2Query) then
-		stockedItems[id].size = ae2Query[1].size;
-	end
-
-	if stockedItems[id].size < item.quantity then
-		if watchList[id] == nil then
-			watchList[id] = {
-				crafting = not (component.proxy(item.address).isDone(item.slot)),
-				cycles = 1
-			}
+	local ae2 = getAe2();
+	if ae2 ~= nil then
+		local ae2Query = ae2.getItemsInNetwork(itemFilter(item));
+		if next(ae2Query) then
+			stockedItems[id].size = ae2Query[1].size;
 		end
-	else
-		watchList[id] = nil;
+
+		if stockedItems[id].size < item.quantity then
+			if watchList[id] == nil then
+				watchList[id] = {
+					crafting = not (component.proxy(item.address).isDone(item.slot)),
+					cycles = 1
+				}
+			end
+		else
+			watchList[id] = nil;
+		end
 	end
 end
 
@@ -590,27 +606,36 @@ function updateAll()
 	for i=1,#iStocked do
 		updateItem(iStocked[i]);
 	end
-	doInventory();
+	updateScreens();
 end
 
 function CPUInfo()
-	local cpus = ae2.getCpus()
-	local openCpus = 0
-	for i=1, #cpus do
-		if (cpus[i].busy == false) then
-			openCpus = openCpus + 1
+	local ae2 = getAe2();
+	if ae2 ~= nil then
+		local cpus = ae2.getCpus()
+		local openCpus = 0
+		for i=1, #cpus do
+			if (cpus[i].busy == false) then
+				openCpus = openCpus + 1
+			end
 		end
+		return {
+			total = #cpus,
+			available = openCpus,
+			inuse = #cpus - openCpus
+		};
+	else
+		return {
+			total = 0,
+			available = 0,
+			inuse = 0
+		}
 	end
-	return {
-		total = #cpus,
-		available = openCpus,
-		inuse = #cpus - openCpus
-	};
 end
 
 function craft(item, amt)
 	if (CPUInfo().available > 0) then
-		local recipe = ae2.getCraftables(itemFilter(item, false))[1];
+		local recipe = getAe2().getCraftables(itemFilter(item, false))[1];
 		if recipe then
 			local order = recipe.request(amt);
 			if (order.isCanceled()) then
@@ -626,7 +651,7 @@ end
 
 ---------------------------------------------------------------------------------
 function addAutoStock()
-	local invController = component["inventory_controller"];
+	local invController = getComponent("inventory_controller");
 
 	if (invController == nil) then
 		GUI.alert("No inventory controller detected on network!");
@@ -638,11 +663,18 @@ function addAutoStock()
 				local stockedItem = stockedItems[itemID(item)];
 				if (stockedItem ~= nil) then
 					GUI_editAutoStock(stockedItem, true);
-				elseif next(ae2.getItemsInNetwork(itemFilter(item))) then
-					if getOpenSlot() then
-						GUI_editAutoStock(item, false);
-					else
-						GUI.alert("No open slots!");
+				else
+					local ae2 = getAe2();
+					if ae2 ~= nil then
+						if next(ae2.getItemsInNetwork(itemFilter(item))) then
+							if getOpenSlot() then
+								GUI_editAutoStock(item, false);
+							else
+								GUI.alert("No open slots!");
+							end
+						else
+							GUI.alert("Item '" .. item.label .."' is not craftable.");
+						end
 					end
 				end
 			end
@@ -746,6 +778,8 @@ function GUI_editAutoStock(stockedItem, alreadystocking)
 		if (quantityinput.text ~= defaultQuan or batchinput.text ~= defaultSize or not alreadystocking) then
 			setLvm(stockedItem, quantityinput.text, batchinput.text);
 		end
+
+		updateScreens();
 		subwindow:remove();
 		workspace:draw();
 	end
