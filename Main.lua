@@ -32,7 +32,7 @@ local defaultOptions = {
 -- time between additional AE2 pulls of 'watched' items, in cycles. min 1, whole numbers only
 	watchFrequency = 12,
 -- uses this address as the proxy for the AE2 me interface. needed if there are several me interface components connected.
-	ae2address = "3520f03d-b346-438f-b95a-05d83f9305ec",
+	ae2address = nil,
 -- main program colors
 	programColor = {
 		["header"]=0x2D2D2D,
